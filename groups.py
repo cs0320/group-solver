@@ -62,10 +62,6 @@ group_prefs_path = sys.argv[5]
 # Maps each student id to a set of meeting time preferences.
 student_availability = {}
 
-# Maps each student id to their GitHub and Discord logins.
-default_map = {"github": "", "discord": ""}
-login_to_github_discord = defaultdict(default_map.copy)
-
 # Set of all time slots for students to choose from.
 time_slots = set()
 
@@ -84,31 +80,24 @@ with open(individual_prefs_path, mode="r") as individual_prefs_csv:
         # Parse CS login and availabilities from CSV.
         cs_login = row["Your CS Login"].lower().strip()
         prefs = row[
-            "Check all mentor meeting slots for which you will be available each week of Project 2"
-        ].split(", ")
+            "Check all mentor meeting slots for which you will be available during the demo period of Integration (11/12–11/13)."
+        ].split(";")
 
         # Update set of all possible time slots.
         time_slots.update(prefs)
 
-        login_to_github_discord[cs_login] = {
-            "github": row["Your GitHub Username"],
-            "discord": row["Your Discord Username"],
-        }
-
         if cs_login in student_availability:
             student_availability[cs_login].update(prefs)
 
-            partner = row["[OPTIONAL] Partner CS Login"].lower().strip()
-            if partner:
-                student_to_partners[cs_login] = {partner}
-                login_to_github_discord[partner] = {
-                    "github": row["[OPTIONAL] Partner GitHub Username"],
-                    "discord": row["[OPTIONAL] Partner Discord Username"],
-                }
+            if "[OPTIONAL] Partner CS Login" in row:
+                partner = row["[OPTIONAL] Partner CS Login"].lower().strip()
+                if partner:
+                    student_to_partners[cs_login] = {partner}
         else:
-            raise Exception(
-                f"ERROR: Student {cs_login} was found in {individual_prefs_path} but was not found in course roster ({all_students_path})"
-            )
+            message = f"ERROR: Student {cs_login} was found in {individual_prefs_path} but was not found in course roster ({all_students_path})"
+            print(message)
+            # raise Exception(message)
+
 
 # Gather student preferences from group preference CSV.
 # Keep track of students and their partner preferences in student_to_partners.
@@ -118,18 +107,14 @@ with open(group_prefs_path, mode="r") as group_prefs_csv:
         # Parse CSV for CS logins of all group members.
         cs_logins = set()
         for i in range(1, GROUP_MAX + 1):
-            cs_login = row[f"Partner {i} - CS Login"].lower().strip()
-            cs_logins.add(cs_login)
-
-            login_to_github_discord[cs_login] = {
-                "github": row[f"Partner {i} - GitHub Username"],
-                "discord": row[f"Partner {i} - Discord Username"],
-            }
+            if f"Partner {i} - CS Login" in row:
+                cs_login = row[f"Partner {i} - CS Login"].lower().strip()
+                cs_logins.add(cs_login)
 
         # Parse CSV for group availabilities.
         prefs = row[
-            "Check all mentor meeting slots for which your entire group will be available each week of Project 2"
-        ].split(", ")
+            "Check all mentor meeting slots for which your entire group will be available during the demo period of Integration (11/12–11/13)."
+        ].split(";")
 
         # Update set of all possible time slots.
         time_slots.update(prefs)
@@ -168,7 +153,7 @@ with open(ta_slots_path, mode="r") as ta_slots_csv:
     ta_slots_reader = csv.DictReader(ta_slots_csv)
     for row in ta_slots_reader:
         ta_login = row["TA CS Login"].lower().strip()
-        slot = row["Mentor Meeting Slot"]
+        slot = row["Time Slot"]
 
         if slot in slot_to_tas:
             slot_to_tas[slot].add(ta_login)
@@ -273,9 +258,8 @@ for g in ta_time_slot_id_map:
     assigned_to_g = [assignment[s][g] for s in student_id_map]
     solver.assert_and_track(
         Or(
-            # here we say that any true x is worth 1, and the sum must be = GROUP_MAX or = 0
-            PbEq([(x, 1) for x in assigned_to_g], GROUP_MAX),
-            PbEq([(x, 1) for x in assigned_to_g], 0),
+            # here we say that any true x is worth 1, and the sum must be <= GROUP_MAX
+            PbLe([(x, 1) for x in assigned_to_g], GROUP_MAX),
         ),
         f"{ta_time_slot_id_map[g]}_size_is_{GROUP_MAX}_or_0",
     )
@@ -337,50 +321,19 @@ else:
         print(f"{g:<35} {group_to_students[g]}")
 
     with open("solution.csv", mode="w") as solution_file:
-        fieldnames = [
-            "Mentor cs login",
-            "Meeting time",
-            "partner 1 - cs login",
-            "partner 1 - github",
-            "partner 1 - discord",
-            "partner 2 - cs login",
-            "partner 2 - github",
-            "partner 2 - discord",
-            "partner 3 - cs login",
-            "partner 3 - github",
-            "partner 3 - discord",
-        ]
+        fieldnames = ["TA CS Login", "Time Slot", "Students"]
         writer = csv.DictWriter(solution_file, fieldnames=fieldnames)
         writer.writeheader()
 
         for g in sorted(group_to_students, key=lambda g: (g.split("(")[1], g)):
             mentor_cs_login = g.split("(")[1].replace(")", "")
             meeting_time = g.split("(")[0]
-            cslogin1, cslogin2, cslogin3 = group_to_students[g]
-            github1, github2, github3 = (
-                login_to_github_discord[cslogin1]["github"],
-                login_to_github_discord[cslogin2]["github"],
-                login_to_github_discord[cslogin3]["github"],
-            )
-            discord1, discord2, discord3 = (
-                login_to_github_discord[cslogin1]["discord"],
-                login_to_github_discord[cslogin2]["discord"],
-                login_to_github_discord[cslogin3]["discord"],
-            )
 
             writer.writerow(
                 {
-                    "Mentor cs login": mentor_cs_login,
-                    "Meeting time": meeting_time,
-                    "partner 1 - cs login": cslogin1,
-                    "partner 1 - github": github1,
-                    "partner 1 - discord": discord1,
-                    "partner 2 - cs login": cslogin2,
-                    "partner 2 - github": github2,
-                    "partner 2 - discord": discord2,
-                    "partner 3 - cs login": cslogin3,
-                    "partner 3 - github": github3,
-                    "partner 3 - discord": discord3,
+                    "TA CS Login": mentor_cs_login,
+                    "Time Slot": meeting_time,
+                    "Students": ",".join(group_to_students[g]),
                 }
             )
 
